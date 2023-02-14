@@ -1,0 +1,372 @@
+---
+title: "The Effect of Perception of Unfair Police Treatment \ on Death Penalty Views in the United States"
+author: "Isabel Ting"
+date: "Februrary 13, 2023"
+header-includes: 
+- \usepackage{longtable}
+output:
+  html_document: 
+    toc: true
+    toc_depth: 4
+    css: style.css
+---
+
+```{r setup, echo = T, results = F, message = F, warning = F}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(readr)
+library(haven)
+library(stargazer)
+library(here)
+library(dplyr)
+library(janitor)
+library(tidyr)
+library(ggplot2)
+library(ggfortify)
+library(sjPlot)
+library(qqplotr)
+library(see)
+library(grid)
+library(gridExtra)
+library(lmtest)
+library(equatiomatic)
+library(knitr)
+```
+
+### **I. Introduction**
+
+Does the perception of unfair police treatment decrease support for the death penalty? Young (1991) and Burke and Leben (2007) concluded that if civilians view one aspect of the criminal justice system (CJS) as unfair, then they will also view the rest of the CJS (like the death penalty) negatively. However, Unnever and Cullen (2005) and Justice Marshall (1976) concluded that Americans do not know enough about the death penalty to make accurate morality and fairness judgments about the penalty; this lack of awareness about the penalty then suggests that Americans likely do not link unfair police treatment to unfair death sentences. Using data from the American National Election Studies (ANES) 2016 Time Series Study on public opinion and voting behavior, I ran a logistic regression to assess if Black and White Americans’ perceptions of unfair policing treatment increases the odds of their support for the death penalty, while controlling for respondents' race, income level, education level, and party identification. In support of Young (1991) and Burke and Leben’s (2007) theory, I find sufficient evidence to suggest that Black and White Americans’ perception of unfair police treatment **is** associated with lower odds of support for the death penalty. 
+
+### **II. Theory**
+
+Young (1991) and Burke and Leben (2007) suggested that negative perceptions of procedural justice – the fairness of procedures involved in resolving disputes and allocating resources – in one area of the CJS (such as the police) can taint how civilians view the rest of the CJS (such as the courts), since civilians typically view the judicial branch as closely connected with other actors in the legal process like legislators or the police. Moreover, civilians are particularly sensitive to their interactions with the police since the police are the most salient representatives of the CJS (Young, 1991). Thus, according to Young (1991), if individuals perceive unfair police treatment, they likely will not support the death penalty. 
+
+In contrast, Unnever and Cullen (2005) and Justice Thurgood Marshall in his dissenting opinion in *Gregg v. Georgia* (1976) argued that the American public does not know enough about the death penalty – such as its absence of a deterrent effect or the wrongful executions associated with the penalty – to correctly make moral, fair judgments about the death penalty. While this latter theory does not directly contrast the former, the latter theorists’ argument suggests that because of Americans’ unawareness and lack of attention devoted to the penalty, Americans likely do not connect injustices in other parts of the CJS (like police treatment) to unjust death sentences, suggesting that the perception of unfair police treatment would not have an effect on support for the death penalty. 
+
+It should be noted that there is very minimal literature on the opposing side of Young (1991) and Burke and Leben’s (2007) theory, and on this topic in general, suggesting that the effect that perception of police treatment has on the support for the death penalty is not heavily studied in criminal justice literature. This absence of literature can also suggest that scholars do not believe there is a noteworthy association between the outlined predictor and outcome variables, which in and of itself suggests an opposition to the first theory by Young (1991) and Burke and Leben (2007). 
+
+### **III. Data**
+
+```{r, echo = T, results = F, message = F, warning = F}
+# load 2016 data 
+anes16 <- read_dta("anes_timeseries_2016.dta")
+
+# select relevant Q's 
+anes16 <- anes16 %>% 
+  
+    select(V162320, V161233, 
+           V161310x, V161361x, V161270, V161157) %>% 
+  
+    summarize(
+           unfair_police_trmt = 
+             case_when(V162320 == 1 ~ 1,     # treat Whites better
+                       V162320 == 2 ~ 0) %>% # treat both Blacks and Whites the same
+             as.numeric(),
+        
+           # get labels for unfair_police_trmt categories for summ. stat chart later 
+           unfair_police_trmt_L = 
+             case_when(unfair_police_trmt == 1 ~ "Treat Whites better",
+                       unfair_police_trmt == 0 ~ "Treat both Blacks and Whites the same") %>% 
+             as.factor(), 
+           
+           deathP_support = 
+             case_when(V161233 == 1 ~ 1,                   # favor 
+                       V161233 == 2 ~ 0) %>% as.numeric(), # oppose 
+           
+           race_fct = 
+             case_when(V161310x == 1 ~ "White",
+                       V161310x == 2 ~ "Black") %>% 
+             as.factor(),
+           
+           income = 
+             case_when(V161361x >= 1 & V161361x  <= 13 ~ 1, 
+                       V161361x >= 14 & V161361x <= 25 ~ 2, 
+                       V161361x >= 26 & V161361x <= 28 ~ 3) %>% 
+             as.numeric(),
+           
+           educ = 
+             case_when(V161270 >= 1 & V161270 <= 8 ~ 1, 
+                       V161270 == 9 ~ 2,
+                       V161270 == 10 ~ 3,
+                       V161270 == 11 |
+                         V161270 == 12 ~ 4, 
+                       V161270 == 13 ~ 5, 
+                       V161270 == 14 ~ 6, 
+                       V161270 == 15 | 
+                         V161270 == 16 ~ 7) %>% 
+             as.numeric(),  
+           
+           partyID_Repub = case_when(V161157 == 1 ~ 1, 
+                                     V161157 == 3 |
+                                       V161157 == 2 ~ 0) %>% 
+             as.numeric())
+```
+
+
+```{r, echo = T, results = F, message = F, warning = F}
+# get rid of meaningless values 
+anes16$unfair_police_trmt  <- replace(anes16$unfair_police_trmt, 
+                                      which(anes16$unfair_police_trmt < 0), NA_real_)
+
+anes16$deathP_support      <- replace(anes16$deathP_support, 
+                                      which(anes16$deathP_support < 0), NA_real_)
+
+anes16$income              <- replace(anes16$income, 
+                                      which(anes16$income < 0 |
+                                            anes16$income > 3), NA_real_)
+
+anes16$educ                <- replace(anes16$educ, 
+                                      which(anes16$educ < 0 |
+                                            anes16$educ > 7), NA_real_)
+
+anes16$partyID_Repub       <- replace(anes16$partyID_Repub, 
+                                      which(anes16$partyID_Repub < 0 |
+                                                anes16$partyID_Repub == 2), NA_real_)
+
+# save data 
+save(anes16, file = "anes16.RData")
+```
+
+My data was sourced from the ANES 2016 Time Series Study on public opinion and voting behavior in U.S. presidential elections, which randomly sampled the American population. The key predictor – perception of unfair police treatment – was coded as a binary variable, where the belief that police “treat [Blacks and Whites] the same” was coded 0 and “treat Whites better,” coded 1. The answer option “treat Blacks better” was excluded due to the extreme unpopularity of this option among respondents. The key outcome – support for the death penalty – was also coded as a binary variable, where “oppose” was coded 0 and “favor,” coded 1. The control variables race, income, education level, and party identification were included because White, lower-income, less educated, and/or Republican individuals are more likely to view anti-Black policies like the death penalty favorably (Jacobs & Carmichael, 2002). Thus, I wanted to see the effect of perception of unfair police treatment on the odds of supporting the death penalty, despite these other variables that typically influence Americans’ views towards the death penalty. **Please see the following link to see the full codebook for variables in the ANES 2016 dataset: https://electionstudies.org/wp-content/uploads/2018/12/anes_timeseries_2016_userguidecodebook.pdf.**
+
+I completed the following to modify data: 
+
+1. I changed race into a categorical variable and only included Black and White Americans because of their historically divergent views on the death penalty and the CJS (Jacobs & Carmichael, 2002). 
+
+2. I simplified the numerical annual income variable, by combining the lowest 13 income ranges into one low-income category coded as 1 (under \$5,000 to \$44,999), the middle nine income ranges into one middle-income category coded as 2 (\$45,000 - \$149,999), and the highest three income ranges into one high-income category coded as 3 (\$150,000 - \$250,000 or more). 
+
+3. I simplified the numerical education variable to a seven-point scale, where higher scores indicate a higher educational level. For example, “less than high school” was coded 1; "high school graduate," coded 2; "some college," coded 3; "associate degree," coded 4; "bachelor's degree," coded 5; "master's degree," coded 6; and “professional degree or higher,” coded 7. 
+
+4. Party identification was coded as a binary variable where “Republican” was coded 1 and other non-Republican identifications (such as “Democrat”), coded 0. 
+
+5. I coded meaningless answers (such as “Don’t know,” or “Refused,” etc.)
+into NAs for all my variables.
+
+Table 1 presents the summary statistics for support of the death penalty, grouped by the two main perceptions of police treatment: “treat Whites better” and “treat both [Blacks and Whites] the same.” It should be noted that respondents who think the police treat Whites better (and thus perceive unfair police treatment) have a lower mean support for the death penalty (M = .59) than respondents who think the police treat Whites and Blacks equally (M = .84). This already suggests that different perceptions of police treatment may influence the odds of support for the death penalty.   
+
+```{r, echo = T, results = T, message = F, warning = F}
+# get summary stats for deathP_support, grouped by unfair_police_trmt 
+anes16_summary <- anes16 %>% 
+  filter(!is.na(unfair_police_trmt_L)) %>% 
+  group_by(unfair_police_trmt_L) %>% 
+  summarize(
+    N        = n(), 
+    Min      = min(deathP_support, na.rm = T), 
+    Median   = median(deathP_support, na.rm = T), 
+    Mean     = mean(deathP_support, na.rm = T),
+    Max      = max(deathP_support, na.rm = T), 
+    SD       = sd(deathP_support, na.rm = T), 
+    Variance = SD^2
+  )
+
+# get table of summ. stats for deathP_support
+suppressMessages(library(kableExtra))
+anes16_summary %>% 
+    rename("Perception of Police Treatment" = "unfair_police_trmt_L") %>% 
+    kable(format      = "html", 
+          escape      = F, 
+          booktabs    = T, 
+          caption     = "Table 1: Summary Statistics on Support for Death Penalty, \
+                         Grouped by Perceptions of Police Treatment", 
+          digits      = 2) %>% 
+    kable_styling(
+        latex_options = "hold_position", 
+        full_width    = F
+  ) 
+```
+
+### **IV. Methods** 
+
+Given the binary nature of the dependent variable (support for death penalty), logistic regression is the most appropriate form of data analysis. According to the diagnostic plots in the Appendix, the assumption of no multicollinearity is upheld, since the green bars in the multicollinearity plot indicate low correlation. Although the assumption of linearity between independent variables and log odds could be violated, the other assumptions – binary dependent variable, independent observations, and large sample size – are met, so I will proceed with a logistic regression. 
+
+Two drop-in-deviance tests, using ANOVA, were conducted to assess which of the following models has the most explanatory power, given their respectively increasing complexity: bivariate model, model with reduced controls (excluding party identification), and model with full controls. According to Table 3 in the Appendix, the extremely small p-value of around 0 suggests that the model with reduced controls has significantly more explanatory power than the simplest bivariate model. 
+
+Next, according to Table 4 in the Appendix, the small p-value of around 0 suggests that the model with full controls (including party ID) has significantly more explanatory power than the model with reduced controls (excluding party ID), suggesting that being Republican has a statistically significant effect on the odds of supporting the death penalty. 
+
+Therefore, out of the three models, we will prefer Model 3 with full control variables; its equation is presented below. 
+
+```{r, echo = T, results = F, message = F, warning = F}
+set.seed(0)
+# add in full control variables
+log16_full <- glm(deathP_support ~ unfair_police_trmt + 
+                    race_fct + 
+                    income + 
+                    educ + 
+                    partyID_Repub, 
+                  family = binomial, 
+                  data   = anes16)
+summary(log16_full)
+
+log16_full$model # get model with missingness
+extract_eq(log16_full) # get equation
+
+# bivariate equation 
+set.seed(0)
+log16_simple <- glm(deathP_support ~ unfair_police_trmt, 
+                    family = binomial, 
+                    data   = log16_full$model)
+summary(log16_simple)
+
+# leave out partyID_Repub
+set.seed(0)
+log16_reduced <- glm(deathP_support ~ unfair_police_trmt + 
+                       race_fct + 
+                       income + 
+                       educ,
+                     family = binomial, 
+                     data   = log16_full$model)
+summary(log16_reduced)
+```
+
+
+$$
+\begin{split}
+\log\left[ \frac { P( \operatorname{deathP\_support} = \operatorname{1} ) }{ 1 - P( \operatorname{deathP\_support} = \operatorname{1} ) } \right] = \alpha + \beta_{1}(\operatorname{unfair\_police\_trmt}) + \beta_{2}(\operatorname{race\_fct}_{\operatorname{White}}) + \beta_{3}(\operatorname{income}) + \\ 
+\beta_{4}(\operatorname{educ}) + \beta_{5}(\operatorname{partyID\_Repub})
+\end{split}
+$$
+
+### **V. Results** 
+
+*Across all three models, it appears that Black and White Americans’ perception of unfair police treatment (binary variable where “treat [Blacks and Whites] the same” is coded 0 and “treat Whites better” is coded 1) is associated with lower odds of supporting the death penalty (binary variable where “oppose” is coded 0 and “favor” is coded 1).* (To clarify, Table 2 presents the odds, *not* log odds.) 
+
+According to Model 3 in Table 2, the odds of supporting the death penalty for Black and White Americans who think the police treat Whites better (or that police treatment is unfair towards Blacks) is .551 the odds of support for Black and White Americans who think police treatment *is fair*, after controlling for respondents’ race, income, education, and party identification. In other words, holding all other variables constant, the likelihood of supporting the death penalty is 44.9 percent lower for Black and White respondents who perceive police treatment as *unfair*, compared to the likelihood of support of Black and White Americans who perceive police treatment as *fair*. 
+
+This lower likelihood of support for the death penalty among Black and White respondents who perceive police treatment as unfair can be visually observed in Plot 1, where, as respondents view police treatment as increasingly unfair (approaching the value of 1 on the x-axis), the predicted odds of support for the death penalty decreases – a negative relationship. Of course, the continuous nature of the axes in Plot 1 is due to the *predictive* nature of the plot, since both the predictor and outcome variables are actually binary, instead of continuous. 
+
+There are a couple key observations to note: 
+
+1. The estimate of .551 is statistically significant at the .01 level because its extremely small p-value is less than .01. 
+
+2. We cannot assume causality between the perception of unfair police treatment and lower odds of support for the death penalty for Black and White Americans since the ANES 2016 Time Series Study is an observational study, and random treatment assignment of perception of unfair police treatment was not possible. 
+
+3. We can only generalize this negative association (between perception of unfair police treatment and odds of support for the death penalty) to the larger U.S. population of *Black and White Americans* for the *2016* election year, since (1) we subsetted for Black and White Americans for our respondents, and (2) ANES randomly sampled its respondents from the U.S. population in 2016. 
+
+We do not have sufficient evidence to suggest that the perception of unfair police treatment is negatively associated with the odds of support for the death penalty for 2016 Americans of *other races* (outside of Black and White Americans) or for Black and White populations of *other election years*. We only gathered ANES data from one election year, 2016, and the selection of 2016 as an election year was not random. 
+
+Nevertheless, this finding is substantively significant because the estimate of .551 suggests that Black and White Americans’ perceptions of one area of the CJS can indeed influence how they perceive other areas of the CJS, as Young (1991) and Burke and Leben (2007) had suggested. 
+
+```{r echo = T, message = F, warning = F, results = F}
+## PUBLISH ODDS, NOT LOG ODDS
+# enclose all model objects in a list object
+models  <- list(log16_simple, log16_reduced, log16_full)
+
+# exponentiate all model coefficients 
+# (lapply = apply this function to each element of this list)
+coefOR2 <- lapply(models, function(x) exp(coef(x)))
+
+# calculate the appropriate standard error with exponentiation
+seOR2   <- lapply(models, 
+                  function(x) exp(coef(x)) * summary(x)$coef[, 2])
+
+# extract p-values
+p2      <- lapply(models, function(x) summary(x)$coefficients[, 4])
+```
+
+
+```{r mylatextable, echo = T, message = F, warning = F, results = "asis", out.width = "40%", out.height = "60%"}
+# run stargazer as you would normally but with these options included
+# you can add any other stargazer arguments, too
+stargazer(models, 
+          coef   = coefOR2, # tell stargazer to print these coefs
+          se     = seOR2,   # tell stargazer to print these S.E.s
+          p      = p2,      # tell stargazer to print these p-values
+          type   = "html", 
+          header = F, 
+          title  = "Log. Regression Results for Odds of Support for Death Penalty", 
+          covariate.labels = c("Percep. of Unfair Police Trmt.", "Race (White)", 
+                               "Income", "Education", "Party ID (Repub.)"), 
+          dep.var.labels   = "Support for Death Penalty", 
+          column.labels    = c("Bivariate", "Reduced Controls", "Full Controls")
+          )
+```
+
+
+```{r, echo = T, results = T, message = F, warning = F, out.width = "65%", out.height = "65%"}
+## PLOT DATA 
+plot_model(
+    model = log16_full, 
+    type  = "eff", 
+    terms = c("unfair_police_trmt")
+    ) + 
+    theme_minimal() + 
+    ggtitle("Plot 1: Predicted Probability of Support for Death Penalty vs. \ 
+             Perception of Unfair Police Treatment") + 
+    labs(x       = "Perception of Unfair Police Treatment", 
+         y       = "Predicted Probability of Support for Death Penalty", 
+         caption = "Value of 1 on X-axis = Whites are treated better (unfair trmt) \
+                    Value of 0 on X-axis = Blacks & Whites are treated equally (fair trmt)")
+```
+
+### **VI. Conclusion and Limitations**
+
+Overall, I conclude that there is sufficient evidence to suggest that Black and White Americans’ perceptions of unfair police treatment is associated with their lower odds of support for the death penalty, thereby supporting the theory posed by Young (1991) and Burke and Leben (2007). 
+
+This finding suggests a possible contradiction to the implications posed by Unnever and Cullen (2005) and Marshall (1976) - that Americans do not have sufficient knowledge about the death penalty. Rather, it appears that Black and White Americans use information they have about *other* areas of the CJS as a heuristic substitute to inform their opinions of the death penalty, a substantively significant implication. 
+
+Nevertheless, there are some limitations to this report. For example, racial prejudice may be a likely confounder that influences respondents’ odds of supporting the death penalty. In fact, Jacobs and Carmichael (2002) suggested that racially prejudiced Whites may actually *prefer* unfair, anti-Black justice practices like policing or the death penalty, due to the racial threat that the size of the Black population poses to the White majority. 
+
+Therefore, perhaps White Americans who are racially prejudiced *and* perceive police treatment as unfair towards Blacks may actually have *higher* odds of supporting the death penalty; this hypothesis can be explored by examining interaction effects between perception of unfair police treatment and racial prejudice.  
+
+### **VII. Works Cited**
+
+Gregg v. Georgia, 428 U.S. 153 (1976) *Note: This refers to Marshall's (1976) dissenting opinion in* Gregg v. Georgia*.*
+
+Jacobs, David, and Jason T. Carmichael. "The political sociology of the death penalty: A pooled time-series analysis." American Sociological Review (2002): 109-131.
+
+Unnever, James D., and Francis T. Cullen. "Executing the innocent and support for capital punishment: Implications for public policy." Criminology & Public Policy 4, no. 1 (2005): 3-38.
+
+Young, Robert L. "Race, conceptions of crime and justice, and support for the death penalty." Social Psychology Quarterly (1991): 67-75.
+
+\newpage
+
+### **Appendix** 
+
+```{r, echo = T, results = F, message = F, warning = F}
+options(knitr.kable.NA = '')
+
+# compare bivariate vs. reduced model
+anova(log16_simple,  log16_reduced, test = "Chisq") %>%    
+    kable(format      = "latex", 
+          escape      = F, 
+          booktabs    = T, 
+          caption     = "ANOVA Comparison for Bivariate Model vs. Model w/ Reduced Controls", 
+          digits      = 3, 
+          longtable   = T) %>% 
+    kable_styling(
+        latex_options = "hold_position", 
+        full_width    = F
+  )  
+
+# compare reduced vs. full 
+anova(log16_full,  log16_reduced, test = "Chisq") %>%    
+    kable(format      = "latex", 
+          escape      = F, 
+          booktabs    = T, 
+          caption     = "ANOVA Comparison for Model w/ Reduced Controls vs. Model w/ Full Controls", 
+          digits      = 3, 
+          longtable   = T) %>% 
+    kable_styling(
+        latex_options = "hold_position", 
+        full_width    = F
+  )  
+```
+
+
+```{r, echo = T, results = 'hide', fig.keep = 'none', message = F, warning = F}
+## CHECK ASSUMPTIONS
+library(sjlabelled)
+anes16 <- remove_all_labels(anes16)
+performance::check_model(log16_full, 
+                         panel = T, 
+                         alpha = 0.1) 
+```
+
+
+```{r echo = FALSE, out.width = '100%'}
+knitr::include_graphics("check_model.png", 
+                        error = FALSE)
+```
+
+
+
